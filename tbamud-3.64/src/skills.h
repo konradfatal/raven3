@@ -193,7 +193,7 @@ struct ability_info_type {
   char *costFormula;                            /**> The cost formula/expression                        */
   char *affDurationFormula;                     /**> The affects duration formula/expression            */
   char *damDiceFormula;                         /**> The damage formula/expression                      */
-  struct affected_type *affects;                /**> The affects                                        */
+  struct list_data *affects;                     /**> The affects                                        */
   int affDuration;                              /**> The standard affect duration                       */
   struct dam_dice_info *damDice;                /**> The standard damage dice roll                      */
 };

@@ -444,8 +444,9 @@ struct ability_info_type *getAbilityByName(char *name) {
 void abeditParse(struct descriptor_data *d, char *arg) {
   bool quit = FALSE;
   struct ability_info_type *ab = OLC_ABILITY(d);
-  struct affected_type *aff, *prev;
+  struct affected_type *aff;
   struct msg_type *msg;
+  struct iterator_data iterator;
   int num = -1, cls = -1, i;
   char val[MAX_INPUT_LENGTH];
 
@@ -613,7 +614,7 @@ void abeditParse(struct descriptor_data *d, char *arg) {
         break;
       case 'X':
       case 'x':
-        if(ab->affects != NULL) {
+        if(ab->affects) {
           write_to_output(d, "Enter affect number :\r\n");
           OLC_MODE(d) = ABEDIT_AFF_DELETE;
         } else {
@@ -622,7 +623,9 @@ void abeditParse(struct descriptor_data *d, char *arg) {
         break;
       default:
         if(is_number(arg) && ((num = atoi(arg)) > 0)) {
-          for(aff = ab->affects, i = 1; aff != NULL && i != num; aff = aff->next, i++);
+          i = 1;
+          while((aff = (struct affected_type *)simple_list(ab->affects)))
+            if(i++ == num) break;
 
           if(aff != NULL) {
             currAff = aff;
@@ -898,7 +901,6 @@ void abeditParse(struct descriptor_data *d, char *arg) {
         //0 and cancels the new affect
         if(currAff == NULL) {
           CREATE(currAff, struct affected_type, 1);
-          currAff->next = NULL;
         }
         currAff->location = num;
 
@@ -913,16 +915,11 @@ void abeditParse(struct descriptor_data *d, char *arg) {
       if(num >= -999 && num <= 999) {
         currAff->modifier = num;
         if(ab->affects == NULL) {
-          // this is the first affect
-          ab->affects = currAff;
-          ab->affects->next = NULL;
+          ab->affects = create_list();
+          add_to_list(currAff, ab->affects);
         } else {
-          //find first if it's already in the list
-          // add end of affect list if new
-          for(aff = ab->affects; aff->next != NULL || aff != currAff; aff = aff->next);
-          // this is indeed a new affect
-          if(aff != currAff) {
-            aff->next = currAff;
+          if(find_in_list(currAff, ab->affects) == NULL) {
+            add_to_list(currAff, ab->affects);
           }
         }
         currAff = NULL;
@@ -934,26 +931,15 @@ void abeditParse(struct descriptor_data *d, char *arg) {
     case ABEDIT_AFF_DELETE:
       if(num > 0) {
         //find the aff we want to delete
-        for(aff = ab->affects, i = 1; aff != NULL && i != num; aff = aff->next, i++);
+        int i = 1;
+        for(aff = (struct affected_type *) merge_iterator(&iterator, ab->affects);
+            aff; aff = (struct affected_type *) next_in_list(&iterator))
+          if(i++ == num) break;
 
         //found it
         if(aff != NULL) {
-
-          if(ab->affects == aff) {
-            // it's the first affect
-            ab->affects = aff->next;
-            aff = NULL;
-            free(aff);
-          } else {
-            //find the affect before aff
-            for(prev = ab->affects; prev != NULL && prev->next != aff; prev = prev->next);
-
-            prev->next = aff->next;
-            aff = NULL;
-            free(aff);
-          }
+          remove_from_list(aff, ab->affects);
           abeditDisplayAffMenu(d);
-
         } else {
           // it doesn't exist
           write_to_output(d, "That affect does not exist!!!\r\n");
@@ -1303,13 +1289,11 @@ static void interpretAbilityLine(struct ability_info_type *ab, char *field, char
       aff->location = STR_TO_INDEX(val1, apply_types);
       aff->modifier = nVal1;
 
-      if(!ab->affects) {
-        ab->affects = aff;
-      } else {
-        // put in order of occurrence in file
-        ab->affects->next = aff;
+      if(ab->affects == NULL) {
+        ab->affects = create_list();
       }
 
+      add_to_list(aff, ab->affects);
     }
   }
 
@@ -1574,7 +1558,7 @@ static void writeAbility (FILE *aFile, struct ability_info_type *ability) {
   }
 
   if(ability->affects) {
-    for(af = ability->affects; af; af = af->next) {
+    while((af = (struct affected_type *)simple_list(ability->affects))) {
       if(af->location > 0) {
         sprintf(buf,"%s %d",apply_types[af->location], af->modifier);
         WRITE_STR_LN(aFile, "Affects", buf);
@@ -1750,7 +1734,7 @@ static void displayGeneralAbilityInfo(struct char_data *ch, struct ability_info_
     }
   }
 
-  if(ab->affects) {
+  if(ab->affects != NULL) {
     i = 1;
     send_to_char(ch, "----------------------------------------------------------------------\r\n");
     if(ab->affDurationFormula) {
@@ -1758,7 +1742,7 @@ static void displayGeneralAbilityInfo(struct char_data *ch, struct ability_info_
     } else {
       send_to_char(ch, "\tcAffects the following for\tn \ty%d\tn\tchrs\tn:\r\n", ab->affDuration);
     }
-    for(aff = ab->affects; aff; aff = aff->next) {
+    while((aff = (struct affected_type *) simple_list(ab->affects))) {
       if(aff->location != APPLY_NONE) {
         send_to_char(ch, "   \tg%d\tn) \tcmodifies\tn \ty%-15s\tn \tcby\tn \tC%d\tn\r\n", i++, apply_types[aff->location], aff->modifier);
       }
@@ -2209,12 +2193,15 @@ static void abeditDisplayAffMenu(struct descriptor_data *d) {
   char buf[MAX_STRING_LENGTH];
   int len = 0, i = 0;
   struct affected_type *aff;
+  struct iterator_data iterator;
   struct ability_info_type *ab = OLC_ABILITY(d);
 
-  if(ab->affects != NULL) {
-    for(aff = ab->affects; aff; aff = aff->next) {
+  if(ab->affects != NULL && ab->affects->iSize > 0) {
+
+    for(aff = (struct affected_type *) merge_iterator(&iterator, ab->affects); aff;  aff = next_in_list(&iterator)) {
       len += sprintf(buf + len, "  %s%2d%s) modifies %s%-15s%s by %s%-3d%s\r\n",
           grn, ++i, nrm, cyn, apply_types[aff->location], nrm, yel, aff->modifier, nrm);
+
     }
     write_to_output(d, "Applies the following:\r\n%s\r\n", buf);
     if(ab->affDurationFormula) {
@@ -2225,6 +2212,7 @@ static void abeditDisplayAffMenu(struct descriptor_data *d) {
     }
     write_to_output(d, "%s\r\n", buf);
 
+    remove_iterator(&iterator);
   } else {
     write_to_output(d, "%sNo affects defined, create (%sN%s)ew!.%s\r\n", yel, grn, yel, nrm);
   }
