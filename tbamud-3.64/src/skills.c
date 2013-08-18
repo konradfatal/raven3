@@ -381,10 +381,11 @@ int saveAbilities (void) {
   int count = 0, written;
   FILE *abisFile;
   struct ability_info_type *a;
+  struct iterator_data iterator;
 
   if(abilityList->iSize > 0) {
     if((abisFile = fopen(SKILLS_FILE, "w"))) {
-      while((a = (struct ability_info_type *) simple_list(abilityList))) {
+      for(a = (struct ability_info_type *) merge_iterator(&iterator, abilityList); a; a = (struct ability_info_type *) next_in_list(&iterator)) {
         writeAbility(abisFile, a);
         count++;
       }
