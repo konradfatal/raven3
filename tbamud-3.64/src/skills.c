@@ -487,7 +487,12 @@ void abeditParse(struct descriptor_data *d, char *arg) {
         break;
       case 'A':
       case 'a':
-        abeditDisplayAffMenu(d);
+        if(HAS_ROUTINE(ab, MAG_AFFECTS) || HAS_ROUTINE(ab, MAG_UNAFFECTS)){
+          abeditDisplayAffMenu(d);
+        } else {
+          abeditDisplayMainMenu(d);
+          return;
+        }
         break;
       case 'F':
       case 'f':
@@ -626,13 +631,13 @@ void abeditParse(struct descriptor_data *d, char *arg) {
         if(is_number(arg) && ((num = atoi(arg)) > 0)) {
           i = 1;
           while((aff = (struct affected_type *)simple_list(ab->affects)))
-            if(i++ == num) break;
+            if(aff->location != APPLY_NONE && i++ == num) break;
 
           if(aff != NULL) {
             currAff = aff;
             abeditDisplayAffApplies(d);
           } else {
-            write_to_output(d, "That affect doest not exist!!!\r\n");
+            write_to_output(d, "That affect doest not exist or is not editable!!!\r\n");
             abeditDisplayAffMenu(d);
           }
         } else {
@@ -935,7 +940,7 @@ void abeditParse(struct descriptor_data *d, char *arg) {
         int i = 1;
         for(aff = (struct affected_type *) merge_iterator(&iterator, ab->affects);
             aff; aff = (struct affected_type *) next_in_list(&iterator))
-          if(i++ == num) break;
+          if(aff->location != APPLY_NONE && i++ == num) break;
 
         //found it
         if(aff != NULL) {
@@ -943,7 +948,7 @@ void abeditParse(struct descriptor_data *d, char *arg) {
           abeditDisplayAffMenu(d);
         } else {
           // it doesn't exist
-          write_to_output(d, "That affect does not exist!!!\r\n");
+          write_to_output(d, "That affect does not exist or is not editable!!!\r\n");
           abeditDisplayAffMenu(d);
         }
       } else {
@@ -1330,6 +1335,16 @@ static void interpretAbilityLine(struct ability_info_type *ab, char *field, char
             SET_BIT(ab->routines, (1 << i));
         }
         var = one_argument(var, val1);
+      }
+      //always have one affect
+      if(HAS_ROUTINE(ab, MAG_AFFECTS)) {
+        if(ab->affects == NULL)
+          ab->affects = create_list();
+
+        CREATE(aff, struct affected_type, 1);
+        aff->location = APPLY_NONE;
+        aff->modifier = 0;
+        add_to_list(aff, ab->affects);
       }
     }
   }
@@ -1746,6 +1761,8 @@ static void displayGeneralAbilityInfo(struct char_data *ch, struct ability_info_
     while((aff = (struct affected_type *) simple_list(ab->affects))) {
       if(aff->location != APPLY_NONE) {
         send_to_char(ch, "   \tg%d\tn) \tcmodifies\tn \ty%-15s\tn \tcby\tn \tC%d\tn\r\n", i++, apply_types[aff->location], aff->modifier);
+      } else {
+        send_to_char(ch, "   \tc* Fixed affect\tn\r\n");
       }
     }
   }
@@ -2200,9 +2217,12 @@ static void abeditDisplayAffMenu(struct descriptor_data *d) {
   if(ab->affects != NULL && ab->affects->iSize > 0) {
 
     for(aff = (struct affected_type *) merge_iterator(&iterator, ab->affects); aff;  aff = next_in_list(&iterator)) {
-      len += sprintf(buf + len, "  %s%2d%s) modifies %s%-15s%s by %s%-3d%s\r\n",
-          grn, ++i, nrm, cyn, apply_types[aff->location], nrm, yel, aff->modifier, nrm);
-
+      if(aff->location != APPLY_NONE) {
+        len += sprintf(buf + len, "  %s%2d%s) modifies %s%-15s%s by %s%-3d%s\r\n",
+            grn, ++i, nrm, cyn, apply_types[aff->location], nrm, yel, aff->modifier, nrm);
+      } else {
+        len += sprintf(buf + len, "  %s * Fixed affect%s\r\n", cyn, nrm);
+      }
     }
     write_to_output(d, "Applies the following:\r\n%s\r\n", buf);
     if(ab->affDurationFormula) {
@@ -2297,7 +2317,9 @@ static void abeditDisplayMainMenu(struct descriptor_data *d) {
       grn, nrm, "Levels", yel, buf, nrm);
   write_to_output(d, "%-13s %s%s%s\r\n", " ", cyn, buf2, nrm);
 
-  write_to_output(d, "%sA%s) Affects Menu\r\n", grn, nrm);
+  if(HAS_ROUTINE(ab, MAG_AFFECTS) ||  HAS_ROUTINE(ab, MAG_UNAFFECTS)) {
+    write_to_output(d, "%sA%s) Affects Menu\r\n", grn, nrm);
+  }
   write_to_output(d, "%sM%s) Messages Menu\r\n", grn, nrm);
   write_to_output(d, "%sS%s) %s Specific Menu\r\n", grn, nrm, ability_types[ab->type]);
   if(HAS_ROUTINE(ab, MAG_SUMMONS) || HAS_ROUTINE(ab, MAG_CREATIONS)) {
